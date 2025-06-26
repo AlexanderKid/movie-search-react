@@ -1,81 +1,288 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
-const API_KEY = "9cc72804";
-const RESULTS_PER_PAGE = 20;
+const API_KEY = "9cc72804"; // Повернуто до старого OMDB API Key
+const RESULTS_PER_PAGE = 8; // Змінено на 8 фільмів на сторінку
 
 function App() {
   const [query, setQuery] = useState('');
   const [movies, setMovies] = useState([]);
+  const [displayedMovies, setDisplayedMovies] = useState([]); // Стан для відсортованих фільмів
   const [page, setPage] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false); // New state for mobile search
+  const [loading, setLoading] = useState(false);
+  const [selectedMovie, setSelectedMovie] = useState(null); // Стан для обраного фільму (деталі)
+  const [showDetails, setShowDetails] = useState(false); // Стан для показу детального опису
+  const [showSortOptions, setShowSortOptions] = useState(false); // Стан для відображення опцій сортування
+  const [sortOption, setSortOption] = useState('none'); // 'none', 'year', 'genre', 'imdbRating'
+
+  const detailsRef = useRef(null); // Створення ref для детального опису
 
   const searchMovies = async (searchQuery = '', year = '', nextPage = 1) => {
-    const res = await fetch(
-      `https://www.omdbapi.com/?apikey=${API_KEY}&s=${searchQuery}&y=${year}&page=${nextPage}`
-    );
-    const data = await res.json();
+    setLoading(true);
+    const actualSearchQuery = searchQuery || 'movie';
 
-    if (data.Response === 'True') {
-      setMovies(data.Search);
-      setTotalResults(Number(data.totalResults));
-    } else {
+    try {
+      const res = await fetch(
+        `https://www.omdbapi.com/?apikey=${API_KEY}&s=${actualSearchQuery}&y=${year}&page=${nextPage}`
+      );
+      const data = await res.json();
+
+      if (data.Response === 'True') {
+        const fetchedMovies = data.Search.slice(0, RESULTS_PER_PAGE);
+        const enrichedMoviesPromises = fetchedMovies.map(async (movie) => {
+          try {
+            const detailRes = await fetch(
+              `https://www.omdbapi.com/?apikey=${API_KEY}&i=${movie.imdbID}&plot=full`
+            );
+            const detailData = await detailRes.json();
+            if (detailData.Response === 'True') {
+              return {
+                ...movie,
+                Genre: detailData.Genre,
+                imdbRating: detailData.imdbRating,
+                Runtime: detailData.Runtime
+              };
+            }
+          } catch (detailError) {
+            console.error("Error fetching detail for movie:", movie.imdbID, detailError);
+          }
+          return movie; // Повернути оригінальний фільм, якщо отримання деталей не вдалося
+        });
+
+        const fullyEnrichedMovies = await Promise.all(enrichedMoviesPromises);
+        setMovies(fullyEnrichedMovies);
+        setTotalResults(Number(data.totalResults)); // Все ще базується на початковому пошуку
+      } else {
+        setMovies([]);
+        setTotalResults(0);
+        console.error("OMDB API Error:", data.Error);
+      }
+    } catch (error) {
+      console.error("Fetch error:", error);
       setMovies([]);
       setTotalResults(0);
+    } finally {
+      setLoading(false);
     }
   };
 
-  useEffect(() => {
-    const currentYear = new Date().getFullYear();
-    searchMovies('movie', currentYear.toString(), 1);
-  }, []);
-
-  const totalPages = Math.ceil(totalResults / RESULTS_PER_PAGE);
-
-  const handlePageChange = (newPage) => {
-    const currentYear = new Date().getFullYear();
-    setPage(newPage);
-    searchMovies('movie', currentYear.toString(), newPage);
+  const fetchMovieDetails = async (imdbID) => {
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `https://www.omdbapi.com/?apikey=${API_KEY}&i=${imdbID}&plot=full`
+      );
+      const data = await res.json();
+      if (data.Response === 'True') {
+        setSelectedMovie(data);
+        // showDetails тепер встановлюється в handleMovieClick після завершення завантаження
+        return data; // Повертаємо дані для використання в handleMovieClick
+      } else {
+        console.error("Failed to fetch movie details:", data.Error);
+        setSelectedMovie(null);
+        setShowDetails(false);
+        return null;
+      }
+    } catch (error) {
+      console.error("Error fetching movie details:", error);
+      setSelectedMovie(null);
+      setShowDetails(false);
+      return null;
+    } finally {
+      setLoading(false); // Завантаження завершено
+    }
   };
 
+  const handleMovieClick = async (movie) => { // Зроблено асинхронною
+    const details = await fetchMovieDetails(movie.imdbID); // Чекаємо завантаження деталей
+    if (details) {
+      setShowDetails(true); // Тепер запускаємо анімацію після завантаження
+      setTimeout(() => {
+          if (detailsRef.current) {
+              detailsRef.current.scrollTop = 0; // Прокручуємо вміст модального вікна до верху
+          }
+      }, 100);
+    }
+  };
+
+  const handleCloseDetails = () => {
+    setShowDetails(false);
+    setTimeout(() => setSelectedMovie(null), 700);
+  };
+
+  // Функція для застосування сортування
+  const applySorting = (moviesToSort, currentSortOption) => {
+    if (currentSortOption === 'none') {
+      return moviesToSort;
+    }
+
+    const sorted = [...moviesToSort].sort((a, b) => {
+      if (currentSortOption === 'year') {
+        const yearA = parseInt(a.Year) || 0;
+        const yearB = parseInt(b.Year) || 0;
+        return yearB - yearA; // За роком (спадання, новіші першими)
+      } else if (currentSortOption === 'genre') {
+        const genreA = a.Genre || '';
+        const genreB = b.Genre || '';
+        return genreA.localeCompare(genreB); // За жанром (алфавітний порядок)
+      } else if (currentSortOption === 'imdbRating') {
+        const ratingA = parseFloat(a.imdbRating) || 0; // Обробка 'N/A' або відсутніх значень
+        const ratingB = parseFloat(b.imdbRating) || 0;
+        return ratingB - ratingA; // За популярністю (найвищий рейтинг першим)
+      }
+      return 0; // Без сортування
+    });
+    return sorted;
+  };
+
+  useEffect(() => {
+    searchMovies('movie', '', 1);
+  }, []);
+
+  // Ефект для застосування сортування при зміні фільмів або опції сортування
+  useEffect(() => {
+    setDisplayedMovies(applySorting(movies, sortOption));
+  }, [movies, sortOption]);
+
+  // Обмеження загальної кількості сторінок до 100 результатів OMDB API
+  const totalPages = Math.min(Math.ceil(totalResults / RESULTS_PER_PAGE), Math.ceil(100 / RESULTS_PER_PAGE));
+
+  const handlePageChange = (newPage) => {
+    if (newPage === '...') return;
+    setPage(newPage);
+    searchMovies(query, '', newPage);
+  };
+
+  const getPageNumbers = () => {
+    const pageNumbers = [];
+    const delta = 2;
+    const range = [];
+
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= page - delta && i <= page + delta)) {
+        range.push(i);
+      }
+    }
+
+    let lastAdded = 0;
+    for (let i of range) {
+      if (lastAdded) {
+        if (i - lastAdded === 2) {
+          pageNumbers.push(lastAdded + 1);
+        } else if (i - lastAdded !== 1) {
+          pageNumbers.push('...');
+        }
+      }
+      pageNumbers.push(i);
+      lastAdded = i;
+    }
+    return pageNumbers;
+  };
+
+  // Висоти для динамічного padding-top
+  const navHeight = 72; // Приблизна висота навігації
+  const sortOptionsBlockHeight = 48; // Приблизна висота блоку сортування при видимості (ви можете налаштувати це значення)
+  const dynamicPaddingTop = showSortOptions ? navHeight + sortOptionsBlockHeight : navHeight;
+
+  const handleSort = (type) => {
+    setSortOption(type);
+    setShowSortOptions(false); // Закрити опції сортування після вибору
+  };
+
+
   return (
-    <div className="min-h-screen w-screen bg-white text-gray-800 font-sans p-6 flex flex-col items-center overflow-x-hidden">
-      <nav className="bg-white border-gray-200 w-full">
+    <div className="min-h-screen w-screen bg-white text-gray-800 font-sans flex flex-col items-center overflow-x-hidden select-none">
+      <nav className={`bg-white border-gray-200 w-full fixed top-0 left-0 right-0 z-40 ${showSortOptions ? '' : 'shadow-md'}`}> {/* Фіксована навігація, тінь тільки коли сортування не показано */}
         <div className="max-w-screen-xl flex flex-wrap items-center justify-between mx-auto p-4 gap-4">
           <a href="#" className="flex items-center space-x-3 rtl:space-x-reverse">
-            <img src="https://flowbite.com/docs/images/logo.svg" className="h-8" alt="Logo" />
+            <svg
+              className="h-8 w-8 text-blue-600"
+              fill="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path d="M22 6h-2V4c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v2H2c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-2 14H4V8h16v12zM9 10h6v2H9v-2zm0 4h6v2H9v-2z"/>
+              <circle cx="7" cy="11" r="1.5"/>
+              <circle cx="17" cy="11" r="1.5"/>
+              <circle cx="7" cy="15" r="1.5"/>
+              <circle cx="17" cy="15" r="1.5"/>
+            </svg>
             <span className="self-center text-2xl font-semibold whitespace-nowrap text-gray-900">MovieApp</span>
           </a>
 
-          {/* Mobile Menu and Search Icons */}
-          <div className="flex md:hidden space-x-4">
-            <button onClick={() => setIsSearchOpen(!isSearchOpen)} className="text-gray-700">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z"
-                />
-              </svg>
-            </button>
-            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="text-white bg-blue-600 rounded p-1"> {/* White burger button */}
+          {/* Mobile Menu Icon (Hamburger) - hidden on screens >= 930px */}
+          <div className="flex min-[930px]:hidden">
+            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="text-blue-600 rounded p-1 border border-gray-300 bg-transparent focus:outline-none">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
           </div>
 
-          {/* Desktop Search */}
+          {/* Desktop Search and Navigation Links - visible on screens >= 930px, hidden by default for mobile */}
+          <div className={`w-full min-[930px]:flex min-[930px]:w-auto min-[930px]:order-2 ${isMenuOpen ? '' : 'hidden'}`}>
+            <ul className="flex flex-col min-[930px]:flex-row font-medium p-4 min-[930px]:p-0 mt-4 rounded-lg bg-white min-[930px]:space-x-8 min-[930px]:mt-0 min-[930px]:border-0 min-[930px]:bg-white w-full min-[930px]:w-auto">
+              {/* Mobile Search Input - Appears inside the menu when open on small screens */}
+              <li className="min-[930px]:hidden mb-4">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    setPage(1);
+                    searchMovies(query, '', 1);
+                    setIsMenuOpen(false);
+                  }}
+                  className="relative w-full"
+                >
+                  <div className="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 20 20">
+                      <path
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z"
+                      />
+                    </svg>
+                  </div>
+                  <input
+                    type="search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    className="block w-full p-2 ps-10 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+                    placeholder="Пошук..."
+                    required
+                  />
+                </form>
+              </li>
+              <li>
+                <a href="#" className="block py-2 px-3 text-blue-700 min-[930px]:p-0 focus:outline-none">Головна</a>
+              </li>
+              <li>
+                <a href="#" className="block py-2 px-3 text-gray-900 hover:text-blue-700 min-[930px]:p-0 focus:outline-none">Про нас</a>
+              </li>
+              <li>
+                <button
+                  onClick={() => {
+                    setShowSortOptions(!showSortOptions);
+                    setIsMenuOpen(false);
+                  }}
+                  className="block py-2 px-3 text-gray-900 hover:text-blue-700 min-[930px]:p-0 bg-transparent border-0 focus:outline-none"
+                >
+                  Сортувати
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          {/* Desktop Search - hidden on screens < 930px */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
               setPage(1);
-              const currentYear = new Date().getFullYear();
-              searchMovies(query, currentYear.toString(), 1);
+              searchMovies(query, '', 1);
             }}
-            className="relative hidden md:block md:w-80 order-2 md:order-1" // Changed order for desktop
+            className="relative hidden min-[930px]:block min-[930px]:w-80 min-[930px]:order-1"
           >
             <div className="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
               <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 20 20">
@@ -92,109 +299,182 @@ function App() {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="block w-full p-2 ps-10 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Пошук..." // Ukrainian placeholder
+              className="block w-full p-2 ps-10 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+              placeholder="Пошук..."
               required
             />
           </form>
-
-          {/* Navigation Links */}
-          <div className={`w-full md:flex md:w-auto order-1 md:order-2 ${isMenuOpen ? '' : 'hidden'}`}> {/* Changed order for desktop */}
-            <ul className="flex flex-col md:flex-row font-medium p-4 md:p-0 mt-4 border border-gray-100 rounded-lg bg-gray-50 md:space-x-8 md:mt-0 md:border-0 md:bg-white w-full md:w-auto">
-              <li>
-                <a href="#" className="block py-2 px-3 text-blue-700 md:p-0">Головна</a> {/* Ukrainian text */}
-              </li>
-              <li>
-                <a href="#" className="block py-2 px-3 text-gray-900 hover:text-blue-700 md:p-0">Про нас</a> {/* Ukrainian text */}
-              </li>
-              <li>
-                <a href="#" className="block py-2 px-3 text-gray-900 hover:text-blue-700 md:p-0">Послуги</a> {/* Ukrainian text */}
-              </li>
-            </ul>
-          </div>
         </div>
       </nav>
 
-      {/* Mobile Search Input - Appears only when isSearchOpen is true */}
-      <div className={`w-full px-4 md:hidden mt-4 ${isSearchOpen ? '' : 'hidden'}`}>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            setPage(1);
-            const currentYear = new Date().getFullYear();
-            searchMovies(query, currentYear.toString(), 1);
-            setIsSearchOpen(false); // Close search after submitting
-          }}
-          className="relative w-full"
-        >
-          <div className="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
-            <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 20 20">
-              <path
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z"
-              />
-            </svg>
-          </div>
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="block w-full p-2 ps-10 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Пошук..." // Ukrainian placeholder
-            required
-          />
-        </form>
+      {/* Блок опцій сортування */}
+      <div className={`
+        fixed left-0 right-0 bg-white z-30 overflow-hidden
+        ${showSortOptions ? 'max-h-40 opacity-100 py-2 shadow-md transition-all duration-300 ease-in-out' : 'max-h-0 opacity-0 pointer-events-none'}
+      `} style={{ top: `${navHeight}px` }}>
+        <div className="max-w-screen-xl mx-auto flex flex-col items-start min-[930px]:flex-row min-[930px]:justify-center min-[930px]:space-x-8 px-4">
+          <button
+            onClick={() => handleSort('year')}
+            className="block px-4 py-2 text-gray-900 hover:text-blue-700 w-full text-left min-[930px]:w-auto min-[930px]:text-center rounded-lg bg-transparent border-0 focus:outline-none"
+          >
+            За роком (новими)
+          </button>
+          <button
+            onClick={() => handleSort('genre')}
+            className="block px-4 py-2 text-gray-900 hover:text-blue-700 w-full text-left min-[930px]:w-auto min-[930px]:text-center rounded-lg bg-transparent border-0 focus:outline-none"
+          >
+            За жанром (А-Я)
+          </button>
+          <button
+            onClick={() => handleSort('imdbRating')}
+            className="block px-4 py-2 text-gray-900 hover:text-blue-700 w-full text-left min-[930px]:w-auto min-[930px]:text-center rounded-lg bg-transparent border-0 focus:outline-none"
+          >
+            За популярністю (IMDb)
+          </button>
+        </div>
       </div>
 
-      <h1 className="text-3xl font-bold mb-2 mt-4">🎬 Додаток для пошуку фільмів</h1> {/* Ukrainian text */}
-
-      <div className="w-full px-4">
+      {/* Основний вміст, що росте для прикріплення футера */}
+      <div className="w-full px-4 flex-grow transition-all duration-300 ease-in-out" style={{ paddingTop: `${dynamicPaddingTop}px` }}>
         <div className="max-w-screen-xl mx-auto w-full">
-          <div className="grid w-full grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {movies.map((movie) => (
-              <div key={movie.imdbID} className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center">
-                {movie.Poster !== "N/A" ? (
-                  <img
-                    src={movie.Poster}
-                    alt={movie.Title}
-                    className="w-full aspect-[2/3] object-cover rounded mb-4"
-                  />
-                ) : (
-                  <div className="w-full aspect-[2/3] bg-gray-200 text-gray-500 flex items-center justify-center text-center text-sm rounded mb-4">
-                    Зображення недоступне
-                  </div>
-                )}
-                <h3 className="text-lg font-semibold text-center mb-1">{movie.Title}</h3>
-                <p className="text-gray-500 text-sm mb-1">Рік: {movie.Year}</p>
-                <p className="text-gray-500 text-sm mb-1">IMDb: {(Math.random() * 2 + 7).toFixed(1)}</p>
-                <p className="text-gray-500 text-sm mb-1">Тривалість: {Math.floor(Math.random() * 60 + 60)}хв</p>
-                <p className="text-gray-500 text-sm">Перегляди: {Math.floor(Math.random() * 10000)}</p>
-              </div>
-            ))}
-          </div>
+          {loading ? (
+            <div className="flex justify-center items-center h-48">
+              <div className="w-16 h-16 rounded-full bg-blue-600 animate-pulse"></div>
+            </div>
+          ) : null}
 
-          {totalPages > 1 && (
+          {/* Детальний опис фільму - тепер з'являється по центру сторінки як модальне вікно */}
+          {selectedMovie && (
+            <div className={`
+              fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4
+              transition-opacity duration-700 ease-in-out
+              ${showDetails ? 'opacity-100' : 'opacity-0 pointer-events-none'}
+            `}>
+              <div ref={detailsRef} className={`
+                bg-white rounded-lg shadow-2xl p-6 min-[930px]:p-8 lg:p-10 w-full max-w-screen-md mx-auto relative
+                transform transition-all duration-700 ease-in-out max-h-[90vh] overflow-y-auto
+                ${showDetails ? 'scale-100 opacity-100' : 'scale-95 opacity-0'}
+              `}>
+                <div className="flex justify-end mb-4">
+                  <button
+                    onClick={handleCloseDetails}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors focus:outline-none"
+                  >
+                    Закрити
+                  </button>
+                </div>
+                <div className="flex flex-col min-[930px]:flex-row items-start gap-6">
+                  <div className="flex-shrink-0 w-full min-[930px]:w-auto flex justify-center">
+                    {selectedMovie.Poster !== "N/A" ? (
+                      <img
+                        src={selectedMovie.Poster}
+                        alt={selectedMovie.Title}
+                        className="w-48 h-auto object-cover rounded-lg shadow-lg min-[930px]:w-64"
+                      />
+                    ) : (
+                      <img
+                        src="https://placehold.co/200x300/2563EB/FFFFFF?text=Постер+недоступний"
+                        alt="Постер недоступний"
+                        className="w-48 h-auto object-cover rounded-lg shadow-lg min-[930px]:w-64"
+                      />
+                    )}
+                  </div>
+                  <div className="flex-grow">
+                    <h2 className="text-3xl font-bold mb-2 text-gray-900">{selectedMovie.Title} ({selectedMovie.Year})</h2>
+                    <p className="text-gray-700 text-lg mb-2">
+                      <span className="font-semibold">Рейтинг IMDb:</span> {selectedMovie.imdbRating || 'N/A'}
+                    </p>
+                    <p className="text-gray-700 text-lg mb-2">
+                      <span className="font-semibold">Жанр:</span> {selectedMovie.Genre || 'N/A'}
+                    </p>
+                    <p className="text-gray-700 text-lg mb-2">
+                      <span className="font-semibold">Тривалість:</span> {selectedMovie.Runtime || 'N/A'}
+                    </p>
+                    <p className="text-gray-700 text-lg mb-2">
+                      <span className="font-semibold">Режисер:</span> {selectedMovie.Director || 'N/A'}
+                    </p>
+                    <p className="text-gray-700 text-lg mb-2">
+                      <span className="font-semibold">Сценарій:</span> {selectedMovie.Writer || 'N/A'}
+                    </p>
+                    <p className="text-gray-700 text-lg mb-2">
+                      <span className="font-semibold">Актори:</span> {selectedMovie.Actors || 'N/A'}
+                    </p>
+                    <p className="text-gray-700 text-lg mb-4">
+                      <span className="font-semibold">Сюжет:</span> {selectedMovie.Plot || 'N/A'}
+                    </p>
+                    <p className="text-gray-700 text-lg mb-2">
+                      <span className="font-semibold">Нагороди:</span> {selectedMovie.Awards || 'N/A'}
+                    </p>
+                    <p className="text-gray-700 text-lg mb-2">
+                      <span className="font-semibold">Мова:</span> {selectedMovie.Language || 'N/A'}
+                    </p>
+                    <p className="text-gray-700 text-lg mb-2">
+                      <span className="font-semibold">Країна:</span> {selectedMovie.Country || 'N/A'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Сітка фільмів - прихована, коли відображаються деталі */}
+          {!loading && displayedMovies.length > 0 && !showDetails ? (
+            <div className="grid w-full grid-cols-1 sm:grid-cols-2 min-[930px]:grid-cols-3 lg:grid-cols-4 gap-6">
+              {displayedMovies.map((movie) => ( // Використовуємо displayedMovies
+                <div
+                  key={movie.imdbID}
+                  className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center cursor-pointer transform transition-transform duration-200 hover:scale-105"
+                  onClick={() => handleMovieClick(movie)}
+                >
+                  {movie.Poster !== "N/A" ? (
+                    <img
+                      src={movie.Poster}
+                      alt={movie.Title}
+                      className="w-full aspect-[2/3] object-cover rounded mb-4"
+                    />
+                  ) : (
+                    <img
+                      src="https://placehold.co/200x300/2563EB/FFFFFF?text=Постер+недоступний"
+                      alt="Постер недоступний"
+                      className="w-full aspect-[2/3] object-cover rounded mb-4"
+                    />
+                  )}
+                  <h3 className="text-lg font-semibold text-center mb-1">{movie.Title}</h3>
+                  <p className="text-gray-500 text-sm mb-1">Рік: {movie.Year}</p>
+                  <p className="text-gray-500 text-sm mb-1">IMDb: {movie.imdbRating || 'N/A'}</p>
+                  <p className="text-gray-500 text-sm mb-1">Тривалість: {movie.Runtime || 'N/A'}</p>
+                  <p className="text-gray-500 text-sm">Жанр: {movie.Genre || 'N/A'}</p>
+                </div>
+              ))}
+            </div>
+          ) : (!loading && !selectedMovie && displayedMovies.length === 0 && !showDetails) ? (
+            <div className="text-center text-lg mt-10">Фільми не знайдено. Спробуйте інший запит.</div>
+          ) : null}
+
+          {totalPages > 1 && !showDetails && (
             <div className="flex justify-center mt-10 flex-wrap gap-2">
-              {Array.from({ length: totalPages }, (_, i) => (
+              {getPageNumbers().map((pageNum, index) => (
                 <button
-                  key={i + 1}
-                  onClick={() => handlePageChange(i + 1)}
+                  key={index}
+                  onClick={() => handlePageChange(pageNum)}
                   className={`px-4 py-2 rounded border ${
-                    page === i + 1
+                    page === pageNum
                       ? 'bg-blue-600 text-white'
                       : 'bg-white text-gray-700 hover:bg-gray-100'
-                  }`}
+                  } ${pageNum === '...' ? 'cursor-default opacity-50' : ''} focus:outline-none`}
+                  disabled={pageNum === '...'}
                 >
-                  {i + 1}
+                  {pageNum}
                 </button>
               ))}
             </div>
           )}
         </div>
       </div>
+      {/* Футер */}
+      <footer className="w-full bg-gray-100 text-gray-600 text-center py-4 mt-10 shadow-inner">
+        <p>&copy; {new Date().getFullYear()} Oleksandr Zhuikov. All rights reserved.</p>
+      </footer>
     </div>
   );
 }
