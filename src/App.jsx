@@ -208,7 +208,7 @@ function App() {
               <circle cx="7" cy="15" r="1.5"/>
               <circle cx="17" cy="15" r="1.5"/>
             </svg>
-            <span className="self-center text-2xl font-semibold whitespace-nowrap text-gray-900">MovieApp</span>
+            <span className="self-center text-2xl font-semibold whitespace-nowrap text-gray-900">MOVIE APP</span>
           </a>
 
           {/* Mobile Menu Icon (Hamburger) - hidden on screens >= 930px */}
