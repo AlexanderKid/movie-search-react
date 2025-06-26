@@ -15,8 +15,24 @@ function App() {
   const [showDetails, setShowDetails] = useState(false); // Стан для показу детального опису
   const [showSortOptions, setShowSortOptions] = useState(false); // Стан для відображення опцій сортування
   const [sortOption, setSortOption] = useState('none'); // 'none', 'year', 'genre', 'imdbRating'
+  const [cardRotations, setCardRotations] = useState({}); // Стан для зберігання поточної ротації кожної картки
+  const [initialCardRotations, setInitialCardRotations] = useState({}); // Стан для зберігання початкової ротації кожної картки
+  const [isMobile, setIsMobile] = useState(false); // Стан для визначення мобільного пристрою
 
   const detailsRef = useRef(null); // Створення ref для детального опису
+
+  // Ефект для визначення мобільного пристрою
+  useEffect(() => {
+    const checkIsMobile = () => {
+      // Вважаємо мобільним, якщо ширина екрану менше 930px (брейкпойнт для бургер меню)
+      setIsMobile(window.innerWidth < 930);
+    };
+
+    checkIsMobile(); // Початкова перевірка при завантаженні компонента
+    window.addEventListener('resize', checkIsMobile); // Додаємо слухача подій зміни розміру вікна
+    return () => window.removeEventListener('resize', checkIsMobile); // Очищення слухача при демонтажі компонента
+  }, []);
+
 
   const searchMovies = async (searchQuery = '', year = '', nextPage = 1) => {
     setLoading(true);
@@ -53,6 +69,15 @@ function App() {
         const fullyEnrichedMovies = await Promise.all(enrichedMoviesPromises);
         setMovies(fullyEnrichedMovies);
         setTotalResults(Number(data.totalResults)); // Все ще базується на початковому пошуку
+
+        // Ініціалізуємо випадкові ротації для нових карток
+        const newInitialRotations = {};
+        fullyEnrichedMovies.forEach(movie => {
+          newInitialRotations[movie.imdbID] = getRandomRotation();
+        });
+        setInitialCardRotations(newInitialRotations);
+        setCardRotations(newInitialRotations); // Встановлюємо початкові ротації також для відображення
+
       } else {
         setMovies([]);
         setTotalResults(0);
@@ -190,6 +215,32 @@ function App() {
     setShowSortOptions(false); // Закрити опції сортування після вибору
   };
 
+  // Функція для генерації випадкового нахилу (діапазон збільшено для кращої помітності)
+  const getRandomRotation = () => {
+    const randomDegree = Math.floor(Math.random() * 31) - 15; // Від -15 до 15 градусів
+    return `rotate(${randomDegree}deg)`;
+  };
+
+  // Обробники подій наведення для карток
+  const handleMouseEnter = (imdbID) => {
+    // Застосовуємо ротацію до 0deg лише якщо це не мобільний пристрій
+    if (!isMobile) {
+      setCardRotations(prevRotations => ({
+        ...prevRotations,
+        [imdbID]: 'rotate(0deg)'
+      }));
+    }
+  };
+
+  const handleMouseLeave = (imdbID) => {
+    // Відновлюємо початкову ротацію лише якщо це не мобільний пристрій
+    if (!isMobile) {
+      setCardRotations(prevRotations => ({
+        ...prevRotations,
+        [imdbID]: initialCardRotations[imdbID]
+      }));
+    }
+  };
 
   return (
     <div className="min-h-screen w-screen bg-white text-gray-800 font-sans flex flex-col items-center overflow-x-hidden select-none">
@@ -311,7 +362,7 @@ function App() {
       <div className={`
         fixed left-0 right-0 bg-white z-30 overflow-hidden
         ${showSortOptions ? 'max-h-40 opacity-100 py-2 shadow-md transition-all duration-300 ease-in-out' : 'max-h-0 opacity-0 pointer-events-none'}
-      `} style={{ top: `${navHeight}px` }}>
+      `} style={{ top: `${navHeight - 2}px` }}>
         <div className="max-w-screen-xl mx-auto flex flex-col items-start min-[930px]:flex-row min-[930px]:justify-center min-[930px]:space-x-8 px-4">
           <button
             onClick={() => handleSort('year')}
@@ -417,33 +468,55 @@ function App() {
             </div>
           )}
 
-          {/* Сітка фільмів - прихована, коли відображаються деталі */}
+          {/* Сітка фільмів - тепер банери, прихована, коли відображаються деталі */}
           {!loading && displayedMovies.length > 0 && !showDetails ? (
-            <div className="grid w-full grid-cols-1 sm:grid-cols-2 min-[930px]:grid-cols-3 lg:grid-cols-4 gap-6">
-              {displayedMovies.map((movie) => ( // Використовуємо displayedMovies
+            <div className="grid w-full grid-cols-1 sm:grid-cols-2 min-[930px]:grid-cols-3 lg:grid-cols-4 gap-6 relative justify-items-center items-start">
+              {displayedMovies.map((movie) => (
                 <div
                   key={movie.imdbID}
-                  className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center cursor-pointer transform transition-transform duration-200 hover:scale-105"
+                  className="group relative bg-white rounded-lg shadow-md cursor-pointer flex flex-col overflow-hidden
+                             transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-xl hover:z-10"
+                  // Застосовуємо ротацію лише якщо це не мобільний пристрій
+                  style={{ transform: isMobile ? 'rotate(0deg)' : cardRotations[movie.imdbID] }}
+                  onMouseEnter={() => handleMouseEnter(movie.imdbID)}
+                  onMouseLeave={() => handleMouseLeave(movie.imdbID)}
                   onClick={() => handleMovieClick(movie)}
                 >
+                  {/* Image Section - always visible */}
                   {movie.Poster !== "N/A" ? (
                     <img
                       src={movie.Poster}
                       alt={movie.Title}
-                      className="w-full aspect-[2/3] object-cover rounded mb-4"
+                      className="w-full aspect-[2/3] object-cover rounded-t-lg"
                     />
                   ) : (
                     <img
                       src="https://placehold.co/200x300/2563EB/FFFFFF?text=Постер+недоступний"
                       alt="Постер недоступний"
-                      className="w-full aspect-[2/3] object-cover rounded mb-4"
+                      className="w-full aspect-[2/3] object-cover rounded-t-lg"
                     />
                   )}
-                  <h3 className="text-lg font-semibold text-center mb-1">{movie.Title}</h3>
-                  <p className="text-gray-500 text-sm mb-1">Рік: {movie.Year}</p>
-                  <p className="text-gray-500 text-sm mb-1">IMDb: {movie.imdbRating || 'N/A'}</p>
-                  <p className="text-gray-500 text-sm mb-1">Тривалість: {movie.Runtime || 'N/A'}</p>
-                  <p className="text-gray-500 text-sm">Жанр: {movie.Genre || 'N/A'}</p>
+                  {/* Опис фільму для мобільних пристроїв - знаходиться під зображенням */}
+                  <div className="p-4 bg-white rounded-b-lg text-gray-800 min-[930px]:hidden">
+                    <h3 className="text-lg font-semibold text-center mb-1">{movie.Title}</h3>
+                    <p className="text-gray-500 text-sm mb-1">Рік: {movie.Year}</p>
+                    <p className="text-gray-500 text-sm mb-1">IMDb: {movie.imdbRating || 'N/A'}</p>
+                    <p className="text-gray-500 text-sm mb-1">Тривалість: {movie.Runtime || 'N/A'}</p>
+                    <p className="text-gray-500 text-sm">Жанр: {movie.Genre || 'N/A'}</p>
+                  </div>
+
+                  {/* Опис фільму для десктопних пристроїв - виїжджає на банер */}
+                  <div className="absolute bottom-0 left-0 right-0 p-4 bg-white bg-opacity-90 rounded-b-lg
+                                  text-gray-800 transition-all duration-300 ease-in-out
+                                  hidden min-[930px]:block
+                                  min-[930px]:opacity-0 min-[930px]:group-hover:opacity-100
+                                  min-[930px]:transform min-[930px]:translate-y-full min-[930px]:group-hover:translate-y-0">
+                    <h3 className="text-lg font-semibold text-center mb-1">{movie.Title}</h3>
+                    <p className="text-gray-500 text-sm mb-1">Рік: {movie.Year}</p>
+                    <p className="text-gray-500 text-sm mb-1">IMDb: {movie.imdbRating || 'N/A'}</p>
+                    <p className="text-gray-500 text-sm mb-1">Тривалість: {movie.Runtime || 'N/A'}</p>
+                    <p className="text-gray-500 text-sm">Жанр: {movie.Genre || 'N/A'}</p>
+                  </div>
                 </div>
               ))}
             </div>
