@@ -326,7 +326,7 @@ function App() {
                 <a onClick={handleGoHome} className="block py-2 px-3 text-blue-700 min-[930px]:p-0 focus:outline-none cursor-pointer">Home</a>
               </li>
               <li>
-                <a onClick={handleShowAbout} className="block py-2 px-3 text-gray-900 hover:text-blue-700 min-[930px]:p-0 focus:outline-none cursor-pointer">About Us</a>
+                <a onClick={handleShowAbout} className="block py-2 px-3 text-gray-900 hover:text-blue-700 min-[930px]:p-0 focus:outline-none cursor-pointer">About</a>
               </li>
               <li>
                 <button
