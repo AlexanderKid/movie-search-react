@@ -323,10 +323,18 @@ function App() {
                 </form>
               </li>
               <li>
-                <a onClick={handleGoHome} className="block py-2 px-3 text-blue-700 min-[930px]:p-0 focus:outline-none cursor-pointer">Home</a>
+                <a onClick={handleGoHome}
+                   className={`block py-2 px-3 min-[930px]:p-0 focus:outline-none cursor-pointer
+                   ${currentPage === 'home' ? 'text-blue-700' : 'text-gray-900 hover:text-blue-700'}`}>
+                  Home
+                </a>
               </li>
               <li>
-                <a onClick={handleShowAbout} className="block py-2 px-3 text-gray-900 hover:text-blue-700 min-[930px]:p-0 focus:outline-none cursor-pointer">About</a>
+                <a onClick={handleShowAbout}
+                   className={`block py-2 px-3 min-[930px]:p-0 focus:outline-none cursor-pointer
+                   ${currentPage === 'about' ? 'text-blue-700' : 'text-gray-900 hover:text-blue-700'}`}>
+                  About Us
+                </a>
               </li>
               <li>
                 <button
@@ -334,7 +342,8 @@ function App() {
                     setShowSortOptions(!showSortOptions);
                     setIsMenuOpen(false);
                   }}
-                  className="block py-2 px-3 text-gray-900 hover:text-blue-700 min-[930px]:p-0 bg-transparent border-0 focus:outline-none"
+                  className={`block py-2 px-3 min-[930px]:p-0 bg-transparent border-0 focus:outline-none
+                  ${showSortOptions ? 'text-blue-700' : 'text-gray-900 hover:text-blue-700'}`}
                 >
                   Sort
                 </button>
