@@ -333,7 +333,7 @@ function App() {
                 <a onClick={handleShowAbout}
                    className={`block py-2 px-3 min-[930px]:p-0 focus:outline-none cursor-pointer
                    ${currentPage === 'about' ? 'text-blue-700' : 'text-gray-900 hover:text-blue-700'}`}>
-                  About Us
+                  About
                 </a>
               </li>
               <li>
