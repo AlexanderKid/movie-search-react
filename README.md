@@ -10,7 +10,7 @@ This is a simple and clean movie search application built with **React**, **Tail
 
 | Search Interface | Results Grid |
 |------------------|--------------|
-| ![Search](screenshots/search.png) | ![Grid](screenshots/grid.png) |
+| ![Home](screenshots/Home.png) | ![About](screenshots/About.png) |
 
 *(📝 Щоб це працювало — можеш зробити скріншоти сайту і зберегти в папку `/screenshots` у репозиторії)*
 
